@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+    /* WARM LIGHT PALETTE - cozy creative studio feel */
+    --background: 0 0% 100%; /* clean white */
+    --foreground: 20 15% 10%; /* near-black warm brown */
+
+    --muted: 30 8% 95%; /* very light gray */
+    --muted-foreground: 20 6% 46%; /* medium gray */
+
+    --card: 0 0% 100%; /* white */
+    --card-foreground: 20 15% 10%;
+
+    --border: 20 8% 88%; /* light gray border */
+    --input: 20 8% 88%;
+    --ring: 16 63% 50%; /* terracotta ring */
+
+    --primary: 16 70% 48%; /* punchy terracotta */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 26 30% 78%; /* clay/sand — richer */
+    --secondary-foreground: 20 18% 15%;
+
+    --accent: 14 72% 40%; /* deep terracotta */
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 4 65% 46%; /* warm red */
+    --destructive-foreground: 0 0% 100%;
+
+    --radius: 1rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  .shadow-warm {
+    box-shadow: 0 1px 3px 0 rgba(60, 40, 20, 0.1), 0 1px 2px -1px rgba(60, 40, 20, 0.08);
+  }
+  .shadow-warm-md {
+    box-shadow: 0 4px 6px -1px rgba(60, 40, 20, 0.12), 0 2px 4px -2px rgba(60, 40, 20, 0.08);
+  }
+  .shadow-warm-lg {
+    box-shadow: 0 10px 15px -3px rgba(60, 40, 20, 0.12), 0 4px 6px -4px rgba(60, 40, 20, 0.08);
+  }
+  .shadow-warm-xl {
+    box-shadow: 0 20px 25px -5px rgba(60, 40, 20, 0.14), 0 8px 10px -6px rgba(60, 40, 20, 0.08);
+  }
+  .bg-warm-radial {
+    background: radial-gradient(ellipse at top, hsl(30 20% 97%), hsl(0 0% 100%) 60%, hsl(30 10% 96%));
+  }
+}
+
+@keyframes recording-pulse {
+  0%, 100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.15;
+    transform: scale(1.15);
+  }
+}
