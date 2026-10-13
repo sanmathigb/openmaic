@@ -8,8 +8,8 @@ function floatTo16BitPCM(input: Float32Array): Int16Array {
 }
 
 export async function audioBufferToMp3(audioBuffer: AudioBuffer, bitrateKbps: number = 128): Promise<Blob> {
-  const lamejs = (await import('lamejs')) as unknown as { Mp3Encoder: new (channels: number, sampleRate: number, kbps: number) => { encodeBuffer: (...args: Int16Array[]) => Uint8Array; flush: () => Uint8Array } };
-  const Mp3Encoder = lamejs.Mp3Encoder;
+  // The package's CommonJS entry has missing imports; its bundled build is self-contained.
+  const { Mp3Encoder } = await import('./vendor/lamejs');
 
   const numChannels = Math.min(2, audioBuffer.numberOfChannels);
   const sampleRate = audioBuffer.sampleRate;

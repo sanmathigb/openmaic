@@ -40,6 +40,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const segments = body.segments.map((s) => String(s));
     const targetLangs = body.targetLangs.map((l) => String(l));
 
+    // Basic abuse caps: this endpoint proxies to Claude on our key.
+    if (segments.length > 200 || targetLangs.length > 5) {
+      return NextResponse.json({ error: 'Too many segments or languages' }, { status: 400 });
+    }
+    const totalChars = segments.reduce((sum, s) => sum + s.length, 0);
+    if (totalChars > 20000) {
+      return NextResponse.json({ error: 'Segments too long (max 20,000 characters total)' }, { status: 400 });
+    }
+
     const translations: Record<string, string[]> = {};
 
     for (const lang of targetLangs) {
@@ -52,10 +61,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           'Content-Type': 'application/json',
           'x-api-key': apiKey,
           'anthropic-version': '2023-06-01',
-          'anthropic-beta': 'messages-2023-12-15',
         },
         body: JSON.stringify({
-          model: 'claude-opus-4-20250514',
+          model: process.env.ANTHROPIC_MODEL || 'claude-opus-4-8',
           max_tokens: 2048,
           system,
           messages: [{ role: 'user', content: user }],

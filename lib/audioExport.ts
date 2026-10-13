@@ -1,6 +1,6 @@
 /**
  * Proper audio export using Web Audio API
- * Decodes all audio to PCM, mixes them, and exports as WAV
+ * Decodes all audio to PCM, mixes them, and exports as MP3
  */
 
 import { Snippet } from '@/types';
@@ -50,10 +50,9 @@ async function mixAudioBuffersSequentially(
   const maxChannels = Math.max(...buffers.map(b => b.numberOfChannels));
   
   // Calculate total duration
-  let totalLength = 0;
-  for (const buffer of buffers) {
-    totalLength += buffer.length;
-  }
+  const totalLength = Math.ceil(
+    buffers.reduce((duration, buffer) => duration + buffer.duration, 0) * sampleRate
+  );
   
   // Create offline context for mixing
   const offlineContext = new OfflineAudioContext(
@@ -104,7 +103,7 @@ export async function exportUserRecordings(snippets: Snippet[]): Promise<AudioEx
     return null;
   }
 
-  // If only one recording, just convert it to WAV
+  // If only one recording, just convert it to MP3
   if (decodedBuffers.length === 1) {
     const mp3Blob = await audioBufferToMp3Blob(decodedBuffers[0]);
     return {
@@ -178,7 +177,81 @@ export function downloadBlob(blob: Blob, filename: string): void {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+
+  window.setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 60_000);
+}
+
+/**
+ * Saves a blob using the File System Access API when available, falling back to
+ * an anchor download for browsers that do not support it.
+ *
+ * Returns false only when the user cancelled the save dialog. The picker can
+ * also throw when the transient user activation expired during a long encode —
+ * that case (and any other picker failure) falls back to a plain download.
+ */
+export async function saveBlob(blob: Blob, filename: string): Promise<boolean> {
+  const maybeWindow = window as typeof window & {
+    showSaveFilePicker?: (options?: {
+      suggestedName?: string;
+      types?: Array<{
+        description: string;
+        accept: Record<string, string[]>;
+      }>;
+    }) => Promise<{
+      createWritable: () => Promise<{
+        write: (data: Blob) => Promise<void>;
+        close: () => Promise<void>;
+      }>;
+    }>;
+  };
+
+  if (maybeWindow.showSaveFilePicker) {
+    const extension = filename.split('.').pop() || '';
+    try {
+      const handle = await maybeWindow.showSaveFilePicker({
+        suggestedName: filename,
+        types: [
+          {
+            description: `${extension.toUpperCase()} file`,
+            accept: {
+              [blob.type || 'application/octet-stream']: extension ? [`.${extension}`] : [],
+            },
+          },
+        ],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return true;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return false; // user cancelled — not an error
+      }
+      // Picker unavailable (e.g. expired user activation) — fall through.
+    }
+  }
+
+  downloadBlob(blob, filename);
+  return true;
+}
+
+/**
+ * Opens a blob in a new tab as a fallback when a browser suppresses downloads.
+ */
+export function openBlob(blob: Blob): void {
+  const url = URL.createObjectURL(blob);
+  const opened = window.open(url, '_blank', 'noopener,noreferrer');
+
+  if (!opened) {
+    URL.revokeObjectURL(url);
+    throw new Error('Browser blocked download and preview popup');
+  }
+
+  window.setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 60_000);
 }
 
 /**

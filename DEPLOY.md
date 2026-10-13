@@ -26,8 +26,11 @@ git push -u origin main
 1. In Vercel dashboard, go to your project
 2. Click "Settings" → "Environment Variables"
 3. Add these:
-   - `ANTHROPIC_API_KEY` = your_anthropic_api_key_here
-   - `DEEPGRAM_API_KEY` = your_deepgram_api_key_here
+   - `ANTHROPIC_API_KEY` = your Anthropic API key
+   - `ANTHROPIC_MODEL` = optional, defaults to `claude-opus-4-8`
+   - `DEEPGRAM_API_KEY` = your Deepgram API key
+   - `ELEVENLABS_API_KEY` = your ElevenLabs API key
+   - `ELEVENLABS_VOICE_ID` = optional voice override
 4. Click "Save"
 5. Redeploy: Go to "Deployments" tab → Click "Redeploy"
 
@@ -51,11 +54,12 @@ vercel login
 
 # Add environment variables:
 vercel env add ANTHROPIC_API_KEY
-# Paste: your_anthropic_api_key_here
 # Select "Production"
 
 vercel env add DEEPGRAM_API_KEY  
-# Paste: your_deepgram_api_key_here
+# Select "Production"
+
+vercel env add ELEVENLABS_API_KEY
 # Select "Production"
 
 # Deploy:

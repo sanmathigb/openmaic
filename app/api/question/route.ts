@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { generateQuestion, ClaudeError } from '@/lib/claude';
+import { generateQuestion, ClaudeError, MAX_QUESTIONS } from '@/lib/claude';
 import { Snippet } from '@/types';
 import { checkRateLimit, getClientIP, RATE_LIMITS } from '@/lib/rateLimit';
 
@@ -8,7 +8,6 @@ import { checkRateLimit, getClientIP, RATE_LIMITS } from '@/lib/rateLimit';
  */
 interface QuestionRequestBody {
   projectDescription: string;
-  mode?: 'share' | 'think';
   snippets: Snippet[];
 }
 
@@ -94,8 +93,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const { projectDescription, mode, snippets } = body;
-    const normalizedMode = mode === 'share' || mode === 'think' ? mode : 'think';
+    const { projectDescription, snippets } = body;
 
     // Validate project description is not empty
     if (!projectDescription.trim()) {
@@ -115,17 +113,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // Enforce session limit
-    if (snippets.length >= 10) {
+    if (snippets.length >= MAX_QUESTIONS) {
       return NextResponse.json(
-        { error: 'Session limit reached (max 10 questions).' },
+        { error: `Session limit reached (max ${MAX_QUESTIONS} questions).` },
         { status: 400 }
       );
     }
 
-    console.log(`Generating question for project with ${snippets.length} previous snippets (mode: ${normalizedMode || 'default'})`);
+    console.log(`Generating question for project with ${snippets.length} previous snippets`);
 
     // Generate the next question using Claude
-    const question = await generateQuestion(projectDescription, snippets, normalizedMode);
+    const question = await generateQuestion(projectDescription, snippets);
 
     console.log(`Question generated successfully: "${question.substring(0, 50)}..."`);
 

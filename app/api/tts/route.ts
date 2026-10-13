@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { synthesizeSpeech, getVoiceId, DEEPGRAM_VOICES } from '@/lib/deepgramTTS';
+import { synthesizeSpeech } from '@/lib/elevenlabsTTS';
 import { checkRateLimit, getClientIP, RATE_LIMITS } from '@/lib/rateLimit';
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -23,7 +23,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const body = await request.json();
-    const { text, voice = 'helios' } = body;
+    const { text } = body;
 
     if (!text || typeof text !== 'string') {
       return NextResponse.json({ error: 'Text required' }, { status: 400 });
@@ -37,9 +37,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const voiceId = voice in DEEPGRAM_VOICES ? getVoiceId(voice as keyof typeof DEEPGRAM_VOICES) : getVoiceId('helios');
-    
-    const { audio, contentType } = await synthesizeSpeech(text, voiceId);
+    const { audio, contentType } = await synthesizeSpeech(text);
 
     return new NextResponse(audio, {
       headers: {

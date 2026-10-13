@@ -1,40 +1,36 @@
-import type { Metadata } from "next";
-import { DM_Sans, DM_Serif_Display, Caveat } from "next/font/google";
-import "./globals.css";
-import { ThemeProvider } from "@/components";
+import type { Metadata } from 'next';
+import localFont from 'next/font/local';
+import './globals.css';
+import { ThemeProvider } from '@/components';
 
-const dmSans = DM_Sans({
-  subsets: ["latin"],
-  variable: "--font-body",
+const bodyFont = localFont({
+  src: './fonts/GeistVF.woff',
+  variable: '--font-body',
+  weight: '100 900',
 });
 
-const dmSerifDisplay = DM_Serif_Display({
-  weight: "400",
-  subsets: ["latin"],
-  variable: "--font-heading",
+const displayFont = localFont({
+  src: './fonts/GeistVF.woff',
+  variable: '--font-display',
+  weight: '100 900',
 });
 
-const caveat = Caveat({
-  subsets: ["latin"],
-  variable: "--font-handwritten",
+const monoFont = localFont({
+  src: './fonts/GeistMonoVF.woff',
+  variable: '--font-mono',
+  weight: '100 900',
 });
 
 export const metadata: Metadata = {
-  title: "OpenMaic - your AI wingman",
-  description: "talk it out to figure it out. AI-powered interview practice for builders.",
+  title: 'openmAIc | Talk Your Work Into Focus',
+  description: 'Voice-first interview practice for builders with AI-generated prompts, transcription, and media exports.',
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" suppressHydrationWarning className={`${dmSans.variable} ${dmSerifDisplay.variable} ${caveat.variable}`}>
-      <body className="antialiased min-h-screen font-sans">
-        <ThemeProvider>
-          {children}
-        </ThemeProvider>
+    <html lang="en" suppressHydrationWarning className={`${bodyFont.variable} ${displayFont.variable} ${monoFont.variable}`}>
+      <body>
+        <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
   );

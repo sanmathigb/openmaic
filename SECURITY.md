@@ -25,7 +25,9 @@ All endpoints validate:
 **Never commit these to git:**
 ```bash
 ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_MODEL=claude-opus-4-8
 DEEPGRAM_API_KEY=...
+ELEVENLABS_API_KEY=...
 ```
 
 **Already protected:**
@@ -61,6 +63,10 @@ vercel env add ANTHROPIC_API_KEY
 vercel env add DEEPGRAM_API_KEY
 # Paste your key when prompted
 # Select "Production" environment
+
+vercel env add ELEVENLABS_API_KEY
+# Paste your key when prompted
+# Select "Production" environment
 ```
 
 **Option B: Via Vercel Dashboard**
@@ -70,6 +76,7 @@ vercel env add DEEPGRAM_API_KEY
 4. Add:
    - `ANTHROPIC_API_KEY` = your key
    - `DEEPGRAM_API_KEY` = your key
+   - `ELEVENLABS_API_KEY` = your key
 
 ### Step 4: Deploy
 ```bash
@@ -130,7 +137,7 @@ RATE_LIMITS = {
 **Per user per session (10 questions):**
 - Claude: ~$0.03
 - Deepgram Transcription: ~$0.01  
-- Deepgram TTS: ~$0.02
+- ElevenLabs TTS: depends on your ElevenLabs plan and prompt length
 - **Total: ~$0.06 per session**
 
 **Monthly with 1 friend using it regularly:**

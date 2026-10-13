@@ -1,24 +1,22 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import type { Session, Snippet, SessionMode } from '@/types';
+import { cleanTextForTTS } from '@/lib/questionParser';
+import type { Session, Snippet } from '@/types';
 
 interface SessionState {
   // Session data
   session: Session | null;
 
   // UI state
-  isLoading: boolean;
   isGeneratingQuestion: boolean;
   currentQuestion: string | null;
   error: string | null;
 
   // Actions
-  startSession: (projectDescription: string, mode?: SessionMode) => Promise<void>;
+  startSession: (projectDescription: string) => Promise<void>;
   addSnippet: (question: string, answer: string, audioBlob?: Blob, questionAudioBlob?: Blob) => void;
   generateQuestionTTS: (question: string) => Promise<Blob | null>;
-  setCurrentQuestion: (question: string | null) => void;
   generateNextQuestion: () => Promise<void>;
-  skipQuestion: () => Promise<void>;
   endSession: () => void;
   clearError: () => void;
 }
@@ -28,32 +26,29 @@ export const useSessionStore = create<SessionState>()(
     (set, get) => ({
       // Initial state
       session: null,
-      isLoading: false,
       isGeneratingQuestion: false,
       currentQuestion: null,
       error: null,
 
       // Actions
-      startSession: async (projectDescription: string, mode: SessionMode = 'think') => {
-        set({ isLoading: true, error: null });
+      startSession: async (projectDescription: string) => {
+        set({ error: null });
 
         try {
           const newSession: Session = {
             id: crypto.randomUUID?.() ?? Date.now().toString(),
             projectDescription,
-            mode,
             snippets: [],
             createdAt: new Date(),
             updatedAt: new Date(),
           };
 
-          set({ session: newSession, isLoading: false });
+          set({ session: newSession });
 
           // Generate the first question
           await get().generateNextQuestion();
         } catch (error) {
           set({
-            isLoading: false,
             error: error instanceof Error ? error.message : 'Failed to start session',
           });
         }
@@ -86,7 +81,9 @@ export const useSessionStore = create<SessionState>()(
           const response = await fetch('/api/tts', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: question, voice: 'luna' }),
+            // The stored question carries "[emotion]" metadata for display;
+            // the voice should never read it aloud.
+            body: JSON.stringify({ text: cleanTextForTTS(question) }),
           });
 
           if (!response.ok) {
@@ -94,31 +91,10 @@ export const useSessionStore = create<SessionState>()(
             return null;
           }
 
-          const audioData = await response.arrayBuffer();
-          return new Blob([audioData], { type: 'audio/wav' });
+          return await response.blob();
         } catch (error) {
           console.error('TTS error:', error);
           return null;
-        }
-      },
-
-      setCurrentQuestion: (question: string | null) => {
-        set({ currentQuestion: question });
-      },
-
-      skipQuestion: async () => {
-        const { session } = get();
-        if (!session) return;
-
-        set({ isGeneratingQuestion: true, error: null });
-
-        try {
-          await get().generateNextQuestion();
-        } catch (error) {
-          set({
-            isGeneratingQuestion: false,
-            error: error instanceof Error ? error.message : 'Failed to skip question',
-          });
         }
       },
 
@@ -136,7 +112,6 @@ export const useSessionStore = create<SessionState>()(
             },
             body: JSON.stringify({
               projectDescription: session.projectDescription,
-              mode: session.mode,
               snippets: session.snippets,
             }),
           });
@@ -163,7 +138,6 @@ export const useSessionStore = create<SessionState>()(
         set({
           session: null,
           currentQuestion: null,
-          isLoading: false,
           isGeneratingQuestion: false,
           error: null,
         });

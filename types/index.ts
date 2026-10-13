@@ -16,8 +16,6 @@ export interface Snippet {
   timestamp: Date;
 }
 
-export type SessionMode = 'share' | 'think';
-
 export interface TranscriptSegment {
   startMs: number;
   endMs: number;
@@ -49,8 +47,6 @@ export interface Session {
   id: string;
   /** Description of the project being discussed */
   projectDescription: string;
-  /** Mode of the session (affects AI questioning style) */
-  mode: SessionMode;
   /** Array of Q&A snippets from the session */
   snippets: Snippet[];
   /** Timestamp when the session was created */

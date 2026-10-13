@@ -1,28 +1,28 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  QuestionCard,
-  RecordButton,
-  TranscriptView,
-  SnippetTimeline,
-  SessionControls,
-  SessionSummary,
-} from '@/components';
-import { useSessionStore } from '@/store/session';
+import SessionSummary from '@/components/SessionSummary';
 import { useAudioRecorder } from '@/hooks/useAudioRecorder';
-import { useDeepgramTTSPlayer } from '@/hooks/useDeepgramTTSPlayer';
+import { useTTSPlayer } from '@/hooks/useTTSPlayer';
+import { parseQuestion } from '@/lib/questionParser';
+import { useSessionStore } from '@/store/session';
 
 type SessionPhase = 'recording' | 'transcribing' | 'reviewing';
 
-const MAX_SNIPPETS = 10;
+// Keep in sync with MAX_QUESTIONS in lib/claude.ts.
+const MAX_SNIPPETS = 5;
 const MAX_RECORDING_SECONDS = 300;
+
+function formatDuration(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
 
 export default function SessionPage() {
   const router = useRouter();
 
-  // Session store
   const {
     session,
     isGeneratingQuestion,
@@ -35,7 +35,6 @@ export default function SessionPage() {
     clearError,
   } = useSessionStore();
 
-  // Audio recorder hook
   const {
     isRecording,
     duration,
@@ -46,68 +45,78 @@ export default function SessionPage() {
     resetRecording,
   } = useAudioRecorder(MAX_RECORDING_SECONDS);
 
-  // TTS player hook
   const {
     isPlaying: isPlayingTTS,
     play: playTTS,
     stop: stopTTS,
     enabled: ttsEnabled,
     setEnabled: setTtsEnabled,
-  } = useDeepgramTTSPlayer();
+  } = useTTSPlayer();
 
-  // Local state
   const [phase, setPhase] = useState<SessionPhase>('recording');
-  const [transcript, setTranscript] = useState<string>('');
+  const [transcript, setTranscript] = useState('');
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
   const [transcriptionError, setTranscriptionError] = useState<string | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
 
-  // Track which blob we've already transcribed to prevent double-transcription
-  const lastTranscribedBlobRef = useRef<Blob | null>(null);
-  
-  // Store TTS audio for current question
   const [currentQuestionTTS, setCurrentQuestionTTS] = useState<Blob | null>(null);
 
-  // Handle hydration - check for session on mount
+  const [playingSnippetId, setPlayingSnippetId] = useState<string | null>(null);
+  const snippetAudioRef = useRef<HTMLAudioElement | null>(null);
+  const snippetAudioUrlRef = useRef<string | null>(null);
+
+  const lastTranscribedBlobRef = useRef<Blob | null>(null);
+  const playedQuestionRef = useRef<string | null>(null);
+
   useEffect(() => {
     setIsHydrated(true);
   }, []);
 
-  // Redirect if no session after hydration
   useEffect(() => {
     if (isHydrated && !session) {
       router.push('/');
     }
   }, [isHydrated, session, router]);
 
-  // Generate TTS for current question (background)
   useEffect(() => {
-    if (!ttsEnabled) return;
-    if (currentQuestion && !currentQuestionTTS && !isGeneratingQuestion) {
-      generateQuestionTTS(currentQuestion).then((blob) => {
-        if (blob) {
-          setCurrentQuestionTTS(blob);
-        }
-      });
-    }
-  }, [currentQuestion, isGeneratingQuestion, currentQuestionTTS, generateQuestionTTS, ttsEnabled]);
+    if (!ttsEnabled || !currentQuestion || currentQuestionTTS || isGeneratingQuestion) return;
 
-  // Auto-play TTS when it loads
+    generateQuestionTTS(currentQuestion).then((blob) => {
+      if (blob) {
+        setCurrentQuestionTTS(blob);
+      }
+    });
+  }, [currentQuestion, currentQuestionTTS, generateQuestionTTS, isGeneratingQuestion, ttsEnabled]);
+
   useEffect(() => {
-    if (!ttsEnabled) return;
-    if (currentQuestionTTS && !isRecording && phase === 'recording') {
-      playTTS(currentQuestionTTS);
+    if (!ttsEnabled || !currentQuestionTTS || isRecording || phase !== 'recording') return;
+    if (playedQuestionRef.current === currentQuestion) return;
+    playedQuestionRef.current = currentQuestion;
+    playTTS(currentQuestionTTS);
+  }, [currentQuestion, currentQuestionTTS, isRecording, phase, playTTS, ttsEnabled]);
+
+  const cleanupSnippetAudio = useCallback(() => {
+    if (snippetAudioRef.current) {
+      snippetAudioRef.current.pause();
+      snippetAudioRef.current.onended = null;
+      snippetAudioRef.current = null;
     }
-  }, [currentQuestionTTS, isRecording, phase, playTTS, ttsEnabled]);
+    if (snippetAudioUrlRef.current) {
+      URL.revokeObjectURL(snippetAudioUrlRef.current);
+      snippetAudioUrlRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => cleanupSnippetAudio();
+  }, [cleanupSnippetAudio]);
 
   const questionNumber = session ? session.snippets.length + 1 : 1;
   const isAtSnippetLimit = session ? session.snippets.length >= MAX_SNIPPETS : false;
 
   const transcribeBlob = useCallback(async (blob: Blob) => {
-    if (!blob) return;
-
     setIsTranscribing(true);
     setTranscriptionError(null);
     setPhase('transcribing');
@@ -131,9 +140,7 @@ export default function SessionPage() {
       setTranscript(data.transcript || '');
       setPhase('reviewing');
     } catch (error) {
-      setTranscriptionError(
-        error instanceof Error ? error.message : 'Failed to transcribe audio'
-      );
+      setTranscriptionError(error instanceof Error ? error.message : 'Failed to transcribe audio');
       setPhase('recording');
       lastTranscribedBlobRef.current = null;
     } finally {
@@ -141,13 +148,8 @@ export default function SessionPage() {
     }
   }, []);
 
-  // Transcribe audio when we get a new blob
   useEffect(() => {
-    // Only transcribe if we have a new blob we haven't processed yet
-    if (!audioBlob || audioBlob === lastTranscribedBlobRef.current) {
-      return;
-    }
-
+    if (!audioBlob || audioBlob === lastTranscribedBlobRef.current) return;
     transcribeBlob(audioBlob);
   }, [audioBlob, transcribeBlob]);
 
@@ -156,35 +158,31 @@ export default function SessionPage() {
     transcribeBlob(audioBlob);
   }, [audioBlob, isTranscribing, transcribeBlob]);
 
-  // Handle confirm transcript with edited text
   const handleConfirm = useCallback(async (editedTranscript: string) => {
     if (!currentQuestion || !editedTranscript || isConfirming) return;
 
     setIsConfirming(true);
     try {
-      // Add snippet to session with audio blobs (user recording + question TTS)
       addSnippet(currentQuestion, editedTranscript, audioBlob || undefined, currentQuestionTTS || undefined);
 
-      // Reset local state for next recording
       setTranscript('');
-      setPhase('recording');
-      lastTranscribedBlobRef.current = null;
+      setPhase('transcribing');
       setCurrentQuestionTTS(null);
+      lastTranscribedBlobRef.current = null;
       resetRecording();
 
-      // Generate next question unless we've hit the session limit
       if (session && session.snippets.length + 1 >= MAX_SNIPPETS) {
         setShowSummary(true);
         return;
       }
 
       await generateNextQuestion();
+      setPhase('recording');
     } finally {
       setIsConfirming(false);
     }
-  }, [currentQuestion, audioBlob, currentQuestionTTS, isConfirming, addSnippet, resetRecording, generateNextQuestion, session]);
+  }, [addSnippet, audioBlob, currentQuestion, currentQuestionTTS, generateNextQuestion, isConfirming, resetRecording, session]);
 
-  // Handle re-record
   const handleReRecord = useCallback(() => {
     setTranscript('');
     setTranscriptionError(null);
@@ -193,197 +191,275 @@ export default function SessionPage() {
     resetRecording();
   }, [resetRecording]);
 
-  // Handle skip question - just generates a new question without saving
   const handleSkip = useCallback(async () => {
+    if (isAtSnippetLimit) return;
     setTranscript('');
     setTranscriptionError(null);
     setPhase('recording');
-    lastTranscribedBlobRef.current = null;
     setCurrentQuestionTTS(null);
+    lastTranscribedBlobRef.current = null;
     resetRecording();
     await generateNextQuestion();
-  }, [resetRecording, generateNextQuestion]);
+  }, [generateNextQuestion, isAtSnippetLimit, resetRecording]);
 
-  // Handle end session - show summary first
   const handleEndSession = useCallback(() => {
     setShowSummary(true);
   }, []);
 
-  // Handle close summary and actually end
   const handleCloseSummary = useCallback(() => {
+    stopTTS();
+    cleanupSnippetAudio();
     endSession();
     router.push('/');
-  }, [endSession, router]);
+  }, [cleanupSnippetAudio, endSession, router, stopTTS]);
 
-  // Combine errors
+  const handleToggleTTS = useCallback(() => {
+    if (ttsEnabled) {
+      stopTTS();
+      setTtsEnabled(false);
+      return;
+    }
+
+    setTtsEnabled(true);
+    if (currentQuestionTTS) {
+      playTTS(currentQuestionTTS);
+    }
+  }, [currentQuestionTTS, playTTS, setTtsEnabled, stopTTS, ttsEnabled]);
+
+  const handlePlaySnippet = useCallback((snippetId: string, blob?: Blob) => {
+    if (!blob) return;
+
+    if (playingSnippetId === snippetId) {
+      cleanupSnippetAudio();
+      setPlayingSnippetId(null);
+      return;
+    }
+
+    cleanupSnippetAudio();
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+
+    snippetAudioRef.current = audio;
+    snippetAudioUrlRef.current = url;
+    setPlayingSnippetId(snippetId);
+
+    audio.onended = () => {
+      cleanupSnippetAudio();
+      setPlayingSnippetId(null);
+    };
+
+    audio.play().catch(() => {
+      cleanupSnippetAudio();
+      setPlayingSnippetId(null);
+    });
+  }, [cleanupSnippetAudio, playingSnippetId]);
+
   const displayError = storeError || recorderError || transcriptionError;
-  const limitMessage = isAtSnippetLimit
-    ? `Session limit reached (${MAX_SNIPPETS} questions).`
-    : null;
+  const limitMessage = isAtSnippetLimit ? `Session limit reached (${MAX_SNIPPETS} prompts).` : null;
   const canRetryTranscription = Boolean(transcriptionError && audioBlob && !isTranscribing);
 
-  // Loading state during hydration
+  const parsedQuestion = useMemo(() => parseQuestion(currentQuestion || ''), [currentQuestion]);
+  const transcriptReady = phase === 'reviewing' && transcript.trim().length > 0;
+
   if (!isHydrated) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="animate-spin w-6 h-6 border-2 border-primary/30 border-t-primary rounded-full" />
-      </div>
-    );
+    return <main className="session-shell session-loading">Loading session...</main>;
   }
 
-  // No session (will redirect)
   if (!session) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-muted-foreground">Redirecting...</div>
-      </div>
-    );
+    return <main className="session-shell session-loading">Redirecting...</main>;
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      {/* Header */}
-      <header className="flex-shrink-0 border-b border-border bg-card/50">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <span className="text-lg font-bold tracking-[0.2em] uppercase text-foreground">
-            OPENM<span className="text-primary">AI</span>C
-          </span>
-          <button
-            onClick={handleEndSession}
-            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            Done
-          </button>
+    <main className="session-shell">
+      <div className="session-noise" aria-hidden="true" />
+
+      <header className="session-header">
+        <div>
+          <div className="brand-lockup brand-lockup-compact" aria-label="openmAIc">
+            <span className="brand-mark" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </span>
+            <span className="brand-wordmark">
+              openm<span>AI</span>c
+            </span>
+          </div>
+          <p className="session-kicker">Guided founder interview</p>
+          <h1 className="session-title">Prompt {questionNumber}</h1>
         </div>
+        <button className="session-link" onClick={handleEndSession}>
+          Finish
+        </button>
       </header>
 
-      {/* Main Content */}
-      <main className="flex-1 flex">
-        {/* Left Side - Main Interview Area */}
-        <div className="flex-1 flex flex-col items-center justify-center px-4 py-8">
-          <div className="w-full max-w-2xl space-y-8">
-            {/* Error Display */}
-            {(displayError || limitMessage) && (
-              <div className="p-4 bg-destructive/10 border border-destructive/30 rounded-lg">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start space-x-3">
-                    <svg
-                      className="w-5 h-5 text-destructive mt-0.5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                      />
-                    </svg>
-                    <p className="text-sm text-destructive">{displayError || limitMessage}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {canRetryTranscription && (
-                      <button
-                        onClick={handleRetryTranscription}
-                        className="text-sm text-destructive/80 hover:text-destructive/70 border border-destructive/40 px-2 py-1 rounded-md"
-                      >
-                        Retry
-                      </button>
-                    )}
-                    {displayError && (
-                      <button
-                        onClick={() => {
-                          clearError();
-                          setTranscriptionError(null);
-                        }}
-                        className="text-destructive hover:text-destructive/80"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M6 18L18 6M6 6l12 12"
-                          />
-                        </svg>
-                      </button>
-                    )}
-                  </div>
-                </div>
+      <section className="session-grid">
+        <article className="session-main-card">
+          {(displayError || limitMessage) && (
+            <div className="session-alert" role="alert">
+              <p>{displayError || limitMessage}</p>
+              <div className="session-alert-actions">
+                {canRetryTranscription && (
+                  <button className="session-link" onClick={handleRetryTranscription}>
+                    Retry transcription
+                  </button>
+                )}
+                {displayError && (
+                  <button
+                    className="session-link"
+                    onClick={() => {
+                      clearError();
+                      setTranscriptionError(null);
+                    }}
+                  >
+                    Dismiss
+                  </button>
+                )}
               </div>
-            )}
+            </div>
+          )}
 
-            {/* Question Card */}
-            <QuestionCard
-              questionNumber={questionNumber}
-              question={currentQuestion || ''}
-              isLoading={isGeneratingQuestion}
-              onPlay={currentQuestionTTS ? () => playTTS(currentQuestionTTS) : undefined}
-              isPlaying={isPlayingTTS}
-              ttsEnabled={ttsEnabled}
-              onToggleTTS={() => {
-                if (ttsEnabled) {
-                  stopTTS();
-                }
-                setTtsEnabled(!ttsEnabled);
-              }}
-            />
+          <div className="session-question-head">
+            <div>
+              <p className="session-kicker">Question {questionNumber}</p>
+              {parsedQuestion.emotion ? <p className="session-emotion">{parsedQuestion.emotion}</p> : null}
+            </div>
+            <div className="session-inline-controls">
+              <button className="session-pill" onClick={handleToggleTTS}>
+                Voice {ttsEnabled ? 'on' : 'off'}
+              </button>
+              <button
+                className="session-pill"
+                onClick={() => currentQuestionTTS && playTTS(currentQuestionTTS)}
+                disabled={!currentQuestionTTS || isPlayingTTS}
+              >
+                {isPlayingTTS ? 'Playing...' : 'Play prompt'}
+              </button>
+            </div>
+          </div>
 
-            {/* Recording/Transcript Area */}
-            <div className="flex flex-col items-center space-y-6">
-              {phase === 'reviewing' && transcript ? (
-                <TranscriptView
-                  transcript={transcript}
-                  onConfirm={handleConfirm}
-                  onReRecord={handleReRecord}
-                  isConfirming={isConfirming}
-                />
-              ) : (
-                <RecordButton
-                  isRecording={isRecording}
-                  duration={duration}
-                  isProcessing={isTranscribing}
-                  onStart={() => {
+          <h2 className="session-question">
+            {isGeneratingQuestion ? 'Generating next question...' : parsedQuestion.question || 'Preparing your first question...'}
+          </h2>
+
+          <p className="session-boost">
+            Answer naturally, review the transcript, and keep moving until the story feels clear.
+          </p>
+
+          <div className="session-recorder-wrap">
+            {!transcriptReady && (
+              <>
+                <button
+                  className={`session-record ${isRecording ? 'is-recording' : ''}`}
+                  onClick={() => {
+                    if (isRecording) {
+                      stopRecording();
+                      return;
+                    }
                     setTranscriptionError(null);
                     stopTTS();
                     startRecording();
                   }}
-                  onStop={stopRecording}
-                  disabled={isGeneratingQuestion || !currentQuestion || isAtSnippetLimit}
-                />
-              )}
-            </div>
+                  disabled={isGeneratingQuestion || !currentQuestion || isAtSnippetLimit || isTranscribing}
+                >
+                  {isTranscribing ? 'Transcribing...' : isRecording ? 'Stop recording' : 'Record answer'}
+                </button>
 
-            {/* Session Controls */}
-            <div className="pt-4">
-              <SessionControls
-                onSkip={handleSkip}
-                onEnd={handleEndSession}
-                disabled={isRecording || isTranscribing || isConfirming || isGeneratingQuestion || isAtSnippetLimit}
+                <p className="session-recorder-meta">
+                  {isRecording ? `Recording ${formatDuration(duration)}` : `Up to ${Math.floor(MAX_RECORDING_SECONDS / 60)} min per response`}
+                </p>
+              </>
+            )}
+
+            {transcriptReady && (
+              <TranscriptEditor
+                transcript={transcript}
+                isConfirming={isConfirming}
+                onConfirm={handleConfirm}
+                onReRecord={handleReRecord}
               />
-            </div>
+            )}
           </div>
-        </div>
 
-        {/* Right Side - Snippet Timeline */}
-        <aside className="hidden lg:block w-96 border-l border-border bg-muted/30 p-6 overflow-y-auto">
-          <SnippetTimeline snippets={session.snippets} />
+          <div className="session-actions-row">
+            <button
+              className="session-link"
+              onClick={handleSkip}
+              disabled={isRecording || isTranscribing || isConfirming || isGeneratingQuestion || isAtSnippetLimit}
+            >
+              Skip question
+            </button>
+          </div>
+        </article>
+
+        <aside className="session-side-card">
+          <p className="session-kicker">Your momentum</p>
+          <h3 className="session-side-title">
+            {session.snippets.length} response{session.snippets.length === 1 ? '' : 's'} captured
+          </h3>
+
+          {session.snippets.length === 0 && (
+            <p className="session-empty">Confirmed responses appear here as you build the session.</p>
+          )}
+
+          <ul className="session-snippets">
+            {session.snippets.map((snippet, index) => (
+              <li key={snippet.id} className="session-snippet-item">
+                <p className="session-snippet-label">Q{index + 1}</p>
+                <p className="session-snippet-question">{snippet.question}</p>
+                <p className="session-snippet-answer">{snippet.answer}</p>
+                {snippet.audioBlob && (
+                  <button
+                    className="session-link"
+                    onClick={() => handlePlaySnippet(snippet.id, snippet.audioBlob)}
+                  >
+                    {playingSnippetId === snippet.id ? 'Stop audio' : 'Play audio'}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
         </aside>
-      </main>
+      </section>
 
-      {/* Mobile Timeline (shown at bottom on smaller screens) */}
-      <div className="lg:hidden border-t border-border bg-muted/30 p-4 max-h-64 overflow-y-auto">
-        <SnippetTimeline snippets={session.snippets} />
+      {showSummary && <SessionSummary session={session} onClose={handleCloseSummary} />}
+    </main>
+  );
+}
+
+interface TranscriptEditorProps {
+  transcript: string;
+  isConfirming: boolean;
+  onConfirm: (editedTranscript: string) => void;
+  onReRecord: () => void;
+}
+
+function TranscriptEditor({ transcript, isConfirming, onConfirm, onReRecord }: TranscriptEditorProps) {
+  const [edited, setEdited] = useState(transcript);
+
+  useEffect(() => {
+    setEdited(transcript);
+  }, [transcript]);
+
+  return (
+    <div className="session-transcript-wrap">
+      <label htmlFor="transcript-edit" className="session-kicker">
+        Review transcript
+      </label>
+      <textarea
+        id="transcript-edit"
+        value={edited}
+        onChange={(event) => setEdited(event.target.value)}
+        className="session-transcript"
+      />
+      <div className="session-transcript-actions">
+        <button className="session-record" onClick={() => onConfirm(edited.trim())} disabled={isConfirming || !edited.trim()}>
+          {isConfirming ? 'Saving...' : 'Save and continue'}
+        </button>
+        <button className="session-link" onClick={onReRecord} disabled={isConfirming}>
+          Re-record
+        </button>
       </div>
-
-      {/* Session Summary Modal */}
-      {showSummary && session && (
-        <SessionSummary
-          session={session}
-          onClose={handleCloseSummary}
-        />
-      )}
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 
-interface UseDeepgramTTSPlayerReturn {
+interface UseTTSPlayerReturn {
   isPlaying: boolean;
   isSupported: boolean;
   play: (audioBlob: Blob) => void;
@@ -11,14 +11,13 @@ interface UseDeepgramTTSPlayerReturn {
   setEnabled: (enabled: boolean) => void;
 }
 
-export function useDeepgramTTSPlayer(): UseDeepgramTTSPlayerReturn {
+export function useTTSPlayer(): UseTTSPlayerReturn {
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isSupported, setIsSupported] = useState(true);
+  const [isSupported] = useState(true);
   const [enabled, setEnabled] = useState(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentUrlRef = useRef<string | null>(null);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (audioRef.current) {
@@ -35,21 +34,18 @@ export function useDeepgramTTSPlayer(): UseDeepgramTTSPlayerReturn {
   const play = useCallback((audioBlob: Blob) => {
     if (!enabled) return;
 
-    // Stop any currently playing audio
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current = null;
     }
 
-    // Revoke previous URL to prevent memory leaks
     if (currentUrlRef.current) {
       URL.revokeObjectURL(currentUrlRef.current);
     }
 
-    // Create new audio element
     const audioUrl = URL.createObjectURL(audioBlob);
     currentUrlRef.current = audioUrl;
-    
+
     const audio = new Audio(audioUrl);
     audioRef.current = audio;
     audio.preload = 'auto';
@@ -58,7 +54,6 @@ export function useDeepgramTTSPlayer(): UseDeepgramTTSPlayerReturn {
     audio.onplay = () => setIsPlaying(true);
     audio.onended = () => {
       setIsPlaying(false);
-      // Clean up after playback
       if (currentUrlRef.current) {
         URL.revokeObjectURL(currentUrlRef.current);
         currentUrlRef.current = null;
@@ -97,4 +92,4 @@ export function useDeepgramTTSPlayer(): UseDeepgramTTSPlayerReturn {
   };
 }
 
-export default useDeepgramTTSPlayer;
+export default useTTSPlayer;

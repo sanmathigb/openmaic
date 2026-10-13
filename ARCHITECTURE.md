@@ -1,7 +1,7 @@
 # openmAIc Architecture
 
 ## Overview
-openmAIc is a Next.js 14 app with a browser-first UI and a small set of API routes that proxy to Claude and Deepgram. Sessions are stored in `localStorage` (no server DB yet). Exports are generated in the browser.
+openmAIc is a Next.js 14 app with a browser-first UI and a small set of API routes that proxy to Claude, Deepgram, and ElevenLabs. Sessions are stored in `localStorage` (no server DB yet). Exports are generated in the browser.
 
 ## Data Flow
 1. User enters a project description.
@@ -18,7 +18,7 @@ openmAIc is a Next.js 14 app with a browser-first UI and a small set of API rout
 - `POST /api/transcribe`  
   Transcribes audio using Deepgram.
 - `POST /api/tts`  
-  Generates TTS for questions using Deepgram Aura.
+  Generates TTS for questions using ElevenLabs.
 - `POST /api/translate`  
   Translates captions/transcript using Claude.
 
@@ -27,7 +27,7 @@ openmAIc is a Next.js 14 app with a browser-first UI and a small set of API rout
 - `hooks/useAudioRecorder.ts`: MediaRecorder wrapper with duration limits.
 - `lib/claude.ts`: Claude wrapper + prompt structure.
 - `lib/deepgram.ts`: transcription wrapper.
-- `lib/deepgramTTS.ts`: TTS wrapper.
+- `lib/elevenlabsTTS.ts`: TTS wrapper.
 - `lib/audioExport.ts`: MP3 export utilities.
 - `lib/mp3Encode.ts`: MP3 encoding via lamejs.
 - `lib/captions.ts`: SRT/VTT generation.
